@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+sqlalchemy
+pydantic
+python-multipart
+requests
+pypdf
+python-docx
+openpyxl
+scikit-learn
