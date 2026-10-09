@@ -1,14 +1,10 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, Integer, String, Text
-from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from pathlib import Path
 from typing import List
 import re
 import requests
-import uvicorn
 
 # Optional document readers
 try:
@@ -30,33 +26,20 @@ except ImportError:
     TfidfVectorizer = None
     cosine_similarity = None
 
-# BASE_DIR = Path(__file__).resolve().parent
-# UPLOAD_FOLDER = BASE_DIR / "uploads"
-# UPLOAD_FOLDER.mkdir(exist_ok=True)
-import os
-from pathlib import Path
-
-BASE_DIR = Path(file).resolve().parent
-FRONTEND_DIR = BASE_DIR
-UPLOAD_FOLDER = Path("/tmp/uploads")
-UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
-
-DATABASE_URL = "sqlite:////tmp/documents.db"
-
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-Base = declarative_base()
-
-class Document(Base):
-    __tablename__ = "documents"
-    id = Column(Integer, primary_key=True, index=True)
-    filename = Column(String, nullable=False)
-    content = Column(Text, nullable=False)
-
-Base.metadata.create_all(bind=engine)
-
 app = FastAPI(title="DocSecure RAG Backend", version="2.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Aap yahan apna Netlify frontend URL bhi de sakte hain
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# In-memory document storage for Serverless environment (Vercel)
+# Note: Serverless functions restart ho sakti hain, isliye production ke liye external DB (jaise Supabase) behtar hota hai.
+fake_db_documents = []
+document_counter = 1
 
 class AskQuestion(BaseModel):
     document_id: int
@@ -74,19 +57,19 @@ def extract_text(filename: str, data: bytes) -> str:
         return data.decode("utf-8", errors="replace")
     if ext == ".pdf":
         if PdfReader is None:
-            raise HTTPException(500, "PDF support is not installed. Run: python -m pip install pypdf")
+            raise HTTPException(500, "PDF support is not installed.")
         import io
         reader = PdfReader(io.BytesIO(data))
         return "\n".join((page.extract_text() or "") for page in reader.pages)
     if ext == ".docx":
         if DocxDocument is None:
-            raise HTTPException(500, "DOCX support is not installed. Run: python -m pip install python-docx")
+            raise HTTPException(500, "DOCX support is not installed.")
         import io
         doc = DocxDocument(io.BytesIO(data))
         return "\n".join(p.text for p in doc.paragraphs)
     if ext == ".xlsx":
         if load_workbook is None:
-            raise HTTPException(500, "XLSX support is not installed. Run: python -m pip install openpyxl")
+            raise HTTPException(500, "XLSX support is not installed.")
         import io
         wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
         lines = []
@@ -122,7 +105,7 @@ def chunks(text: str, size=900, overlap=150):
 def retrieve(question: str, documents, top_k=4):
     candidates = []
     for doc in documents:
-        for chunk in chunks(doc.content):
+        for chunk in chunks(doc["content"]):
             candidates.append((doc, chunk))
     if not candidates:
         return []
@@ -142,7 +125,7 @@ def retrieve(question: str, documents, top_k=4):
 
 def extractive_answer(question: str, contexts):
     if not contexts:
-        return "I couldn't find relevant information in the uploaded documents. Try using terms that appear in the document."
+        return "I couldn't find relevant information in the uploaded documents."
     q_words = set(re.findall(r"\b[a-zA-Z0-9]{3,}\b", question.lower()))
     sentences = []
     for _, context, _ in contexts:
@@ -158,10 +141,9 @@ def extractive_answer(question: str, contexts):
     return " ".join(selected)
 
 def ollama_answer(question: str, contexts):
-    """Optional local generation. If Ollama is running, use it; otherwise use extractive RAG."""
     if not contexts:
         return extractive_answer(question, contexts), "extractive"
-    context = "\n\n".join(f"SOURCE: {doc.filename}\n{chunk}" for doc, chunk, _ in contexts)
+    context = "\n\n".join(f"SOURCE: {doc['filename']}\n{chunk}" for doc, chunk, _ in contexts)
     prompt = f"""Answer the question using ONLY the supplied sources. If the sources do not contain the answer, say you could not find it. Be concise and do not invent facts.\n\nSOURCES:\n{context}\n\nQUESTION: {question}\nANSWER:"""
     try:
         r = requests.post("http://127.0.0.1:11434/api/generate", json={"model": "llama3.2:3b", "prompt": prompt, "stream": False}, timeout=12)
@@ -171,16 +153,17 @@ def ollama_answer(question: str, contexts):
         pass
     return extractive_answer(question, contexts), "extractive"
 
-@app.get("/")
+@app.get("/api")
 def home():
-    return {"message": "DocSecure RAG backend is running", "docs": "/docs"}
+    return {"message": "DocSecure RAG backend is running on Vercel"}
 
-@app.get("/health")
+@app.get("/api/health")
 def health():
     return {"status": "ok", "rag": "tfidf", "generator": "ollama-optional"}
 
-@app.post("/upload")
+@app.post("/api/upload")
 async def upload_document(file: UploadFile = File(...)):
+    global document_counter
     if not file.filename:
         raise HTTPException(400, "Please select a file.")
     ext = Path(file.filename).suffix.lower()
@@ -192,99 +175,71 @@ async def upload_document(file: UploadFile = File(...)):
     text = extract_text(file.filename, data)
     if not text.strip():
         raise HTTPException(400, "No readable text was found in this document.")
+    
     safe_name = Path(file.filename).name
-    (UPLOAD_FOLDER / safe_name).write_bytes(data)
-    db = SessionLocal()
-    try:
-        doc = Document(filename=safe_name, content=text)
-        db.add(doc); db.commit(); db.refresh(doc)
-        return {"message": "Document uploaded and indexed", "document_id": doc.id, "filename": doc.filename, "characters": len(text)}
-    finally:
-        db.close()
+    doc_id = document_counter
+    document_counter += 1
+    
+    new_doc = {"id": doc_id, "filename": safe_name, "content": text}
+    fake_db_documents.append(new_doc)
+    
+    return {"message": "Document uploaded and indexed", "document_id": doc_id, "filename": safe_name, "characters": len(text)}
 
-@app.get("/documents")
+@app.get("/api/documents")
 def get_documents():
-    db = SessionLocal()
-    try:
-        docs = db.query(Document).order_by(Document.id.desc()).all()
-        return [{"id": d.id, "filename": d.filename, "characters": len(d.content)} for d in docs]
-    finally:
-        db.close()
+    return [{"id": d["id"], "filename": d["filename"], "characters": len(d["content"])} for d in reversed(fake_db_documents)]
 
-@app.get("/documents/{document_id}")
+@app.get("/api/documents/{document_id}")
 def get_document(document_id: int):
-    db = SessionLocal()
-    try:
-        d = db.query(Document).filter(Document.id == document_id).first()
-        if not d: raise HTTPException(404, "Document not found")
-        return {"id": d.id, "filename": d.filename, "content": d.content}
-    finally:
-        db.close()
+    d = next((doc for doc in fake_db_documents if doc["id"] == document_id), None)
+    if not d:
+        raise HTTPException(404, "Document not found")
+    return {"id": d["id"], "filename": d["filename"], "content": d["content"]}
 
-@app.get("/search")
+@app.get("/api/search")
 def search_documents(keyword: str):
-    db = SessionLocal()
-    try:
-        docs = db.query(Document).all()
-        hits = []
-        for d in docs:
-            if keyword.lower() in d.content.lower() or keyword.lower() in d.filename.lower():
-                hits.append({"id": d.id, "filename": d.filename})
-        return hits
-    finally:
-        db.close()
+    hits = []
+    for d in fake_db_documents:
+        if keyword.lower() in d["content"].lower() or keyword.lower() in d["filename"].lower():
+            hits.append({"id": d["id"], "filename": d["filename"]})
+    return hits
 
-@app.get("/count")
+@app.get("/api/count")
 def count_documents():
-    db = SessionLocal()
-    try: return {"total_documents": db.query(Document).count()}
-    finally: db.close()
+    return {"total_documents": len(fake_db_documents)}
 
-@app.post("/ask-ai")
+@app.post("/api/ask-ai")
 def ask_ai(request: AskQuestion):
-    db = SessionLocal()
-    try:
-        doc = db.query(Document).filter(Document.id == request.document_id).first()
-        if not doc: raise HTTPException(404, "Document not found")
-        contexts = retrieve(request.question, [doc])
-        answer, generator = ollama_answer(request.question, contexts)
-        return {"document": doc.filename, "question": request.question, "answer": answer, "generator": generator,
-                "sources": [{"filename": d.filename, "score": round(score, 3), "snippet": chunk[:300]} for d, chunk, score in contexts]}
-    finally: db.close()
+    doc = next((d for d in fake_db_documents if d["id"] == request.document_id), None)
+    if not doc:
+        raise HTTPException(404, "Document not found")
+    contexts = retrieve(request.question, [doc])
+    answer, generator = ollama_answer(request.question, contexts)
+    return {
+        "document": doc["filename"], 
+        "question": request.question, 
+        "answer": answer, 
+        "generator": generator,
+        "sources": [{"filename": d["filename"], "score": round(score, 3), "snippet": chunk[:300]} for d, chunk, score in contexts]
+    }
 
-@app.post("/ask-all")
+@app.post("/api/ask-all")
 def ask_all(request: AskAllQuestion):
-    db = SessionLocal()
-    try:
-        docs = db.query(Document).all() if not request.document_ids else db.query(Document).filter(Document.id.in_(request.document_ids)).all()
-        contexts = retrieve(request.question, docs)
-        answer, generator = ollama_answer(request.question, contexts)
-        return {"question": request.question, "answer": answer, "generator": generator,
-                "sources": [{"filename": d.filename, "score": round(score, 3), "snippet": chunk[:300]} for d, chunk, score in contexts]}
-    finally: db.close()
+    docs = fake_db_documents if not request.document_ids else [d for d in fake_db_documents if d["id"] in request.document_ids]
+    contexts = retrieve(request.question, docs)
+    answer, generator = ollama_answer(request.question, contexts)
+    return {
+        "question": request.question, 
+        "answer": answer, 
+        "generator": generator,
+        "sources": [{"filename": d["filename"], "score": round(score, 3), "snippet": chunk[:300]} for d, chunk, score in contexts]
+    }
 
-@app.delete("/documents/{document_id}")
+@app.delete("/api/documents/{document_id}")
 def delete_document(document_id: int):
-    db = SessionLocal()
-    try:
-        d = db.query(Document).filter(Document.id == document_id).first()
-        if not d: raise HTTPException(404, "Document not found")
-        db.delete(d); db.commit()
-        path = UPLOAD_FOLDER / d.filename
-        if path.exists(): path.unlink()
-        return {"message": "Document deleted successfully"}
-    finally: db.close()
-
-# Serve the HTML frontend directly from FastAPI. Open http://127.0.0.1:8000/ in the browser.
-@app.get("/{page:path}")
-def frontend(page: str):
-    if page in {"", "/"}: page = "index.html"
-    target = (FRONTEND_DIR / page).resolve()
-    if target.is_file() and str(target).startswith(str(FRONTEND_DIR.resolve())):
-        return FileResponse(target)
-    raise HTTPException(404, "Page not found")
-
-if __name__ == "__main__":
-    print("DocSecure RAG backend: http://127.0.0.1:8000")
-    print("Swagger API: http://127.0.0.1:8000/docs")
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    global fake_db_documents
+    doc = next((d for d in fake_db_documents if d["id"] == document_id), None)
+    if not doc:
+        raise HTTPException(404, "Document not found")
+    fake_db_documents = [d for d in fake_db_documents if d["id"] != document_id]
+    return {"message": "Document deleted successfully"}
