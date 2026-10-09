@@ -30,9 +30,15 @@ except ImportError:
     TfidfVectorizer = None
     cosine_similarity = None
 
-BASE_DIR = Path(__file__).resolve().parent
-UPLOAD_FOLDER = BASE_DIR / "uploads"
-UPLOAD_FOLDER.mkdir(exist_ok=True)
+# BASE_DIR = Path(__file__).resolve().parent
+# UPLOAD_FOLDER = BASE_DIR / "uploads"
+# UPLOAD_FOLDER.mkdir(exist_ok=True)
+import os
+from pathlib import Path
+
+UPLOAD_FOLDER = Path(os.environ.get("UPLOAD_FOLDER", "/tmp/uploads"))
+UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
+
 FRONTEND_DIR = BASE_DIR
 DATABASE_URL = f"sqlite:///{(BASE_DIR / 'documents.db').as_posix()}"
 
