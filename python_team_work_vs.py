@@ -36,11 +36,12 @@ except ImportError:
 import os
 from pathlib import Path
 
-UPLOAD_FOLDER = Path(os.environ.get("UPLOAD_FOLDER", "/tmp/uploads"))
+BASE_DIR = Path(file).resolve().parent
+FRONTEND_DIR = BASE_DIR
+UPLOAD_FOLDER = Path("/tmp/uploads")
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
 
-FRONTEND_DIR = BASE_DIR
-DATABASE_URL = f"sqlite:///{(BASE_DIR / 'documents.db').as_posix()}"
+DATABASE_URL = "sqlite:////tmp/documents.db"
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
