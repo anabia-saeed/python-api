@@ -1,2 +1,14 @@
+[project]
+name = "docsecure-rag-backend"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+"fastapi",
+"sqlalchemy",
+"python-multipart",
+"requests",
+"uvicorn",
+]
+
 [tool.vercel]
 entrypoint = "python_team_work_vs:app"
