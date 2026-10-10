@@ -34,7 +34,7 @@ LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "30"))
 CHUNK_WORDS = int(os.getenv("CHUNK_WORDS", "180"))      # target words per chunk
 OVERLAP_WORDS = int(os.getenv("OVERLAP_WORDS", "40"))   # words repeated between chunks
 TOP_K = int(os.getenv("TOP_K", "6"))
-MIN_COVERAGE = float(os.getenv("MIN_COVERAGE", "0.3"))  # share of question terms a chunk must match
+FULL_CONTEXT_WORDS = int(os.getenv("FULL_CONTEXT_WORDS", "4000"))  # docs this small are sent to the LLM whole
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "10"))   # Vercel body limit is ~4.5MB on hobby
 SUPPORTED = {".txt", ".pdf", ".docx", ".xlsx", ".csv"}
 
@@ -195,16 +195,16 @@ def make_chunks(segments, doc_id: int, filename: str):
 
 # --------------------------------------------------------------- retrieval --
 def retrieve(question: str, docs, top_k: int = TOP_K):
+    """Rank chunks with BM25. No hard cut-off: the LLM decides whether the answer is present."""
     chunks = [c for d in docs for c in d["chunks"]]
-    q_terms = list(dict.fromkeys(tokenize(question)))
-    if not chunks or not q_terms:
+    if not chunks:
         return []
+    q_terms = list(dict.fromkeys(tokenize(question)))
 
     n = len(chunks)
     avgdl = sum(c["len"] for c in chunks) / n
     df = {t: sum(1 for c in chunks if t in c["tf"]) for t in q_terms}
-    idf = {t: math.log(1 + (n - df[t] + 0.5) / (df[t] + 0.5)) for t in q_terms}
-    total_idf = sum(idf.values()) or 1.0
+    idf = {t: max(0.1, math.log(1 + (n - df[t] + 0.5) / (df[t] + 0.5))) for t in q_terms}
     k1, b = 1.5, 0.75
 
     q_seq = tokenize(question)
@@ -212,27 +212,33 @@ def retrieve(question: str, docs, top_k: int = TOP_K):
 
     scored = []
     for c in chunks:
-        score, matched = 0.0, 0.0
+        score = 0.0
         for t in q_terms:
             tf = c["tf"].get(t, 0)
             if tf:
-                matched += idf[t]
                 score += idf[t] * tf * (k1 + 1) / (tf + k1 * (1 - b + b * c["len"] / avgdl))
-        coverage = matched / total_idf
-        if coverage < MIN_COVERAGE:
-            continue
-        phrase_hits = sum(1 for bg in bigrams if bg in c["norm"])
-        score *= 1 + 0.3 * phrase_hits
-        scored.append((score, coverage, c))
+        score *= 1 + 0.3 * sum(1 for bg in bigrams if bg in c["norm"])
+        scored.append((score, c))
 
     scored.sort(key=lambda x: x[0], reverse=True)
-    best = scored[:top_k]
-    if not best:
-        return []
-    top = best[0][0] or 1.0
-    # drop chunks far weaker than the best match (reduces noise sent to the LLM)
-    best = [x for x in best if x[0] >= 0.25 * top]
-    return [(c, round(s / top, 3)) for s, _, c in best]
+    top = scored[0][0] or 1.0
+    best = [(c, round(sc / top, 3)) for sc, c in scored[:top_k]]
+
+    # Generic questions ("summarize", "what is this about") share no words with the text,
+    # so always include the opening chunk of every document as extra context.
+    seen = {id(c) for c, _ in best}
+    for d in docs:
+        if d["chunks"] and id(d["chunks"][0]) not in seen:
+            best.append((d["chunks"][0], 0.0))
+    return best
+
+
+def select_context(question: str, docs):
+    """Small corpus -> send everything (most accurate). Large corpus -> BM25 top chunks."""
+    total_words = sum(len(d["content"].split()) for d in docs)
+    if total_words <= FULL_CONTEXT_WORDS:
+        return [(c, 1.0) for d in docs for c in d["chunks"]]
+    return retrieve(question, docs)
 
 
 # -------------------------------------------------------------- generation --
@@ -260,7 +266,11 @@ def extractive_answer(question: str, hits) -> str:
                 sents.append((sc, s, chunk["filename"]))
     sents.sort(key=lambda x: x[0], reverse=True)
     picked = [f"{s} ({f})" for sc, s, f in sents if sc > 0][:3]
-    return " ".join(picked) if picked else NOT_FOUND
+    if picked:
+        return " ".join(picked)
+    first = hits[0][0]
+    return ("(AI answering is off - set LLM_API_KEY for full answers.) Beginning of "
+            f"{first['filename']}: {first['text'][:400]}")
 
 
 def llm_answer(question: str, hits):
@@ -301,11 +311,21 @@ def answer_question(question: str, docs):
     question = question.strip()
     if not question:
         raise HTTPException(400, "Question cannot be empty.")
-    hits = retrieve(question, docs)
+    if not docs:
+        return {
+            "question": question,
+            "answer": "No documents are loaded on the server. Please upload your document again "
+                      "(the server may have restarted, which clears in-memory documents).",
+            "generator": "none",
+            "sources": [],
+        }
+    hits = select_context(question, docs)
     if not hits:
         return {"question": question, "answer": NOT_FOUND, "generator": "none", "sources": []}
     score_by_chunk = {id(c): s for c, s in hits}
     answer, generator, used = llm_answer(question, hits)
+    if NOT_FOUND.lower() in answer.lower():
+        used = []
     sources = [
         {
             "filename": c["filename"],
