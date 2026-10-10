@@ -30,7 +30,9 @@ except ImportError:
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
-LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "30"))
+LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "45"))
+LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "700"))          # caps answer length -> faster
+LLM_REASONING_EFFORT = os.getenv("LLM_REASONING_EFFORT", "")      # optional: "low" / "none" for thinking models
 
 CHUNK_WORDS = int(os.getenv("CHUNK_WORDS", "180"))      # target words per chunk
 OVERLAP_WORDS = int(os.getenv("OVERLAP_WORDS", "40"))   # words repeated between chunks
@@ -285,22 +287,37 @@ def llm_answer(question: str, hits):
         f"[{i}] ({c['filename']}{', ' + c['loc'] if c['loc'] else ''})\n{c['text']}"
         for i, (c, _) in enumerate(ordered, 1)
     )
+    payload = {
+        "model": LLM_MODEL,
+        "temperature": 0,
+        "max_tokens": LLM_MAX_TOKENS,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"SOURCES:\n{context}\n\nQUESTION: {question}"},
+        ],
+    }
+    if LLM_REASONING_EFFORT:
+        payload["reasoning_effort"] = LLM_REASONING_EFFORT
     try:
-        r = requests.post(
-            f"{LLM_BASE_URL}/chat/completions",
-            headers={"Authorization": f"Bearer {LLM_API_KEY}"},
-            json={
-                "model": LLM_MODEL,
-                "temperature": 0,
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"SOURCES:\n{context}\n\nQUESTION: {question}"},
-                ],
-            },
-            timeout=LLM_TIMEOUT,
-        )
+        r = None
+        for attempt in range(2):  # one retry on timeout / rate limit / server error
+            try:
+                r = requests.post(
+                    f"{LLM_BASE_URL}/chat/completions",
+                    headers={"Authorization": f"Bearer {LLM_API_KEY}"},
+                    json=payload,
+                    timeout=LLM_TIMEOUT,
+                )
+                if r.status_code in (429, 500, 502, 503, 504) and attempt == 0:
+                    continue
+                break
+            except requests.Timeout:
+                if attempt == 1:
+                    raise
         r.raise_for_status()
-        answer = r.json()["choices"][0]["message"]["content"].strip()
+        answer = (r.json()["choices"][0]["message"]["content"] or "").strip()
+        if not answer:
+            raise ValueError("empty answer from model")
     except requests.HTTPError as exc:
         body = ""
         try:
