@@ -1,3 +1,4 @@
+
 import csv
 import io
 import math
@@ -255,7 +256,7 @@ SYSTEM_PROMPT = (
 )
 
 
-def extractive_answer(question: str, hits) -> str:
+def extractive_answer(question: str, hits, reason: str = "") -> str:
     q_terms = set(tokenize(question))
     sents = []
     for chunk, _ in hits:
@@ -269,14 +270,15 @@ def extractive_answer(question: str, hits) -> str:
     if picked:
         return " ".join(picked)
     first = hits[0][0]
-    return ("(AI answering is off - set LLM_API_KEY for full answers.) Beginning of "
+    return (f"(AI answering is off: {reason or 'unknown reason'}) Beginning of "
             f"{first['filename']}: {first['text'][:400]}")
 
 
 def llm_answer(question: str, hits):
     """Returns (answer, generator, used_chunk_list)."""
     if not LLM_API_KEY:
-        return extractive_answer(question, hits), "extractive", [c for c, _ in hits]
+        why = "LLM_API_KEY is not set on the server (add it in Vercel and redeploy)"
+        return extractive_answer(question, hits, why), f"extractive ({why})", [c for c, _ in hits]
 
     ordered = sorted(hits, key=lambda x: (x[0]["doc_id"], x[0]["index"]))
     context = "\n\n".join(
@@ -299,8 +301,17 @@ def llm_answer(question: str, hits):
         )
         r.raise_for_status()
         answer = r.json()["choices"][0]["message"]["content"].strip()
-    except (requests.RequestException, KeyError, IndexError, ValueError):
-        return extractive_answer(question, hits), "extractive", [c for c, _ in hits]
+    except requests.HTTPError as exc:
+        body = ""
+        try:
+            body = exc.response.text[:200]
+        except Exception:
+            pass
+        why = f"LLM call failed: HTTP {exc.response.status_code} {body}"
+        return extractive_answer(question, hits, why), f"extractive ({why})", [c for c, _ in hits]
+    except (requests.RequestException, KeyError, IndexError, ValueError) as exc:
+        why = f"LLM call failed: {type(exc).__name__} {str(exc)[:150]}"
+        return extractive_answer(question, hits, why), f"extractive ({why})", [c for c, _ in hits]
 
     cited = {int(m) for m in re.findall(r"\[(\d+)\]", answer)}
     used = [ordered[i - 1][0] for i in sorted(cited) if 1 <= i <= len(ordered)]
