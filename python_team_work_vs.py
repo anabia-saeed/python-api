@@ -1,26 +1,4 @@
-"""
-DocSecure RAG Backend v3 (Vercel / serverless friendly)
 
-What changed vs v2 (why answers are now more correct):
-  1. Real LLM answers (OpenAI-compatible API via env vars). The old Ollama call
-     pointed at 127.0.0.1, which can never work on Vercel, so every answer was
-     silently falling back to "pick 3 matching sentences".
-  2. BM25 retrieval (pure Python, no sklearn needed) + phrase bonus. Chunks are
-     built ONCE at upload instead of being re-chunked on every question.
-  3. Sentence-aware chunking with page / sheet labels, so sources are traceable.
-  4. Tables (DOCX) and spreadsheet/CSV rows keep their column headers
-     ("Price: 40 | Item: Pen"), so numbers stay attached to their meaning.
-  5. Relevance threshold: if the documents don't cover the question the bot says
-     so, instead of guessing from weak matches.
-  6. Strict grounded prompt with [n] citations; only the cited sources are
-     returned. Retrieved text is treated as untrusted (prompt-injection guard).
-  7. Upload size limit, safer error handling.
-
-Environment variables (set in Vercel -> Settings -> Environment Variables):
-  LLM_API_KEY   required for LLM answers (without it the extractive fallback is used)
-  LLM_BASE_URL  default https://api.openai.com/v1  (any OpenAI-compatible endpoint)
-  LLM_MODEL     default gpt-4o-mini
-"""
 import csv
 import io
 import math
