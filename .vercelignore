@@ -1,0 +1,4 @@
+documents.db
+__pycache__
+test_models.py
+*.zip

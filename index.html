@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DocChat</title>
+<style>
+:root{--ink:#17231f;--mut:#6f7d76;--line:#e3e9e6;--bg:#f5f7f9;--card:#fff;--dark:#10221d;--dark2:#1d3930;--lime:#d8f36b;--err:#c0392b}
+@media(prefers-color-scheme:dark){:root{--ink:#e8efec;--mut:#9aa9a2;--line:#27352f;--bg:#0d1714;--card:#14211c}}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.5 Inter,"Segoe UI",Arial,sans-serif;background:var(--bg);color:var(--ink);height:100vh;display:flex}
+aside{width:310px;background:var(--dark);color:#fff;display:flex;flex-direction:column;padding:20px 16px;gap:16px;flex:none}
+.brand{display:flex;gap:11px;align-items:center}
+.mark{width:38px;height:38px;border-radius:11px;background:var(--lime);color:var(--dark);display:grid;place-items:center;font-weight:800}
+.brand b{display:block}.brand small{color:#9eaea8;font-size:11px}
+.drop{border:1.5px dashed #3b5a4f;border-radius:12px;padding:18px;text-align:center;cursor:pointer;color:#b9c6c1;font-size:13px}
+.drop.over,.drop:hover{border-color:var(--lime);color:#fff}
+.drop small{display:block;color:#8ea39b;font-size:11px;margin-top:3px}
+.docs{flex:1;overflow:auto;display:grid;gap:6px;align-content:start}
+.docs h4{margin:4px 0;font-size:11px;letter-spacing:1px;color:#8ea39b;font-weight:700}
+.doc{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:9px;background:var(--dark2);cursor:pointer;border:1.5px solid transparent;font-size:13px}
+.doc.sel{border-color:var(--lime)}
+.doc span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.doc small{color:#8ea39b;font-size:10px}
+.doc button{background:none;border:0;color:#8ea39b;cursor:pointer;font-size:16px;line-height:1;padding:2px 4px}
+.doc button:hover{color:#ff8a7a}
+.empty{color:#8ea39b;font-size:12px;padding:6px 2px}
+.status{font-size:11px;color:#9eaea8;display:flex;gap:6px;align-items:center}
+.dot{width:8px;height:8px;border-radius:50%;background:#e0a030}.dot.ok{background:#4cc36b}.dot.bad{background:#e0523a}
+main{flex:1;display:flex;flex-direction:column;min-width:0}
+header{padding:16px 26px;border-bottom:1px solid var(--line);background:var(--card);display:flex;justify-content:space-between;align-items:center;gap:12px}
+header h1{font-size:16px;margin:0}header small{color:var(--mut)}
+.btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:7px 12px;cursor:pointer;font-size:12px}
+#chat{flex:1;overflow:auto;padding:26px;display:flex;flex-direction:column;gap:16px}
+.hello{margin:auto;text-align:center;max-width:460px;color:var(--mut)}
+.hello h2{color:var(--ink);margin:0 0 6px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:16px}
+.chips button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;padding:7px 13px;cursor:pointer;font-size:12px}
+.msg{max-width:760px;padding:12px 14px;border-radius:12px;white-space:pre-wrap;word-wrap:break-word}
+.msg.u{align-self:flex-end;background:#e6f2d3;color:#17231f;border-bottom-right-radius:3px}
+.msg.a{align-self:flex-start;background:var(--card);border:1px solid var(--line);border-bottom-left-radius:3px}
+.msg.e{align-self:flex-start;background:#fdecea;color:var(--err);border:1px solid #f3c6c1}
+.meta{display:block;margin-top:8px;font-size:11px;color:var(--mut)}
+form{display:flex;gap:10px;padding:16px 26px;border-top:1px solid var(--line);background:var(--card)}
+textarea{flex:1;resize:none;height:48px;border:1px solid var(--line);border-radius:10px;padding:12px;font:inherit;background:var(--bg);color:var(--ink);outline:0}
+textarea:focus{border-color:#4a7d68}
+.send{border:0;border-radius:10px;background:var(--dark);color:#fff;padding:0 22px;font-weight:700;cursor:pointer}
+.send:disabled{opacity:.5;cursor:wait}
+.dots::after{content:"";animation:d 1.2s steps(4) infinite}
+@keyframes d{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
+.auth{position:fixed;inset:0;background:var(--dark);display:none;place-items:center;z-index:10;padding:16px}
+.auth.show{display:grid}
+.auth form{background:var(--card);color:var(--ink);border:0;border-radius:16px;padding:30px;width:min(380px,100%);display:block}
+.auth h2{margin:14px 0 4px;font-size:21px}.auth p{margin:0 0 18px;color:var(--mut);font-size:13px}
+.auth label{display:block;font-size:12px;font-weight:700;margin:12px 0 5px}
+.auth input{width:100%;border:1px solid var(--line);border-radius:9px;padding:11px;font:inherit;background:var(--bg);color:var(--ink);outline:0}
+.auth input:focus{border-color:#4a7d68}
+.auth .send{width:100%;height:44px;margin-top:18px}
+.auth .err{color:var(--err);font-size:13px;min-height:18px;margin-top:12px}
+.auth .sw{margin-top:14px;text-align:center;font-size:13px;color:var(--mut)}
+.auth .sw a{color:var(--ink);font-weight:700;cursor:pointer;text-decoration:underline}
+.who{font-size:12px;color:var(--mut);display:flex;gap:10px;align-items:center}
+@media(max-width:760px){body{flex-direction:column;height:auto;min-height:100vh}aside{width:100%}#chat{min-height:55vh}}
+</style>
+</head>
+<body>
+<div class="auth" id="auth">
+  <form id="authForm" autocomplete="on">
+    <div class="brand"><div class="mark">D</div><b style="font-size:17px">DocChat</b></div>
+    <h2 id="authTitle">Log in</h2><p id="authSub">Sign in to see your documents.</p>
+    <label for="email">Email</label><input id="email" type="email" autocomplete="username" required>
+    <label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required>
+    <div class="err" id="authErr"></div>
+    <button class="send" id="authBtn">Log in</button>
+    <div class="sw" id="authSwitch"></div>
+  </form>
+</div>
+<aside>
+  <div class="brand"><div class="mark">D</div><div><b>DocChat</b><small>Ask your documents</small></div></div>
+  <label class="drop" id="drop">
+    <input type="file" id="file" multiple accept=".txt,.pdf,.docx,.xlsx,.csv" hidden>
+    + Upload documents
+    <small>TXT, PDF, DOCX, XLSX, CSV - click or drop here</small>
+  </label>
+  <div class="docs" id="docs"></div>
+  <div class="status"><span class="dot" id="dot"></span><span id="statusText">checking...</span></div>
+</aside>
+<main>
+  <header>
+    <div><h1>Ask your documents</h1><small id="scope">Searching all documents</small></div>
+    <div class="who"><span id="whoEmail"></span><button class="btn" id="clear">New chat</button><button class="btn" id="logout">Log out</button></div>
+  </header>
+  <div id="chat"></div>
+  <form id="form">
+    <textarea id="q" placeholder="Ask a question about your documents..." autofocus></textarea>
+    <button class="send" id="send">Ask</button>
+  </form>
+</main>
+<script src="config.js"></script>
+<script>
+const BASE = (window.DOCCHAT_API_BASE || "").replace(/\/+$/, "");
+const $ = id => document.getElementById(id);
+let docs = [], selected = null, busy = false;
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+// Login token lives in localStorage (falls back to memory if the browser blocks it)
+let memToken = '';
+const getToken = () => { try { return localStorage.getItem('docchat_token') || memToken; } catch (_) { return memToken; } };
+const setToken = t => { memToken = t || ''; try { t ? localStorage.setItem('docchat_token', t) : localStorage.removeItem('docchat_token'); } catch (_) {} };
+
+async function api(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  const tok = getToken();
+  if (tok) headers['Authorization'] = 'Bearer ' + tok;
+  let r;
+  try { r = await fetch(BASE + path, { ...opts, headers }); }
+  catch (_) { throw new Error('Cannot reach the server' + (BASE ? ' (' + BASE + ')' : '') + '. Check your connection and the API address in config.js.'); }
+  let data = {};
+  try { data = await r.json(); } catch (_) {}
+  if (r.status === 401 && !path.startsWith('/api/login') && !path.startsWith('/api/signup')) { setToken(''); showAuth(); throw new Error('Please log in.'); }
+  if (!r.ok) throw new Error(data.detail || `Request failed (${r.status})`);
+  return data;
+}
+
+let mode = 'login', signupOpen = true;
+function showAuth() {
+  $('auth').classList.add('show');
+  const login = mode === 'login';
+  $('authTitle').textContent = login ? 'Log in' : 'Create account';
+  $('authSub').textContent = login ? 'Sign in to see your documents.' : 'Your documents stay private to your account.';
+  $('authBtn').textContent = login ? 'Log in' : 'Sign up';
+  $('pw').autocomplete = login ? 'current-password' : 'new-password';
+  $('authSwitch').innerHTML = !signupOpen ? '' : login
+    ? 'No account? <a id="swLink">Sign up</a>' : 'Already have an account? <a id="swLink">Log in</a>';
+  const l = $('swLink'); if (l) l.onclick = () => { mode = login ? 'signup' : 'login'; $('authErr').textContent = ''; showAuth(); };
+}
+$('authForm').addEventListener('submit', async e => {
+  e.preventDefault(); $('authErr').textContent = ''; $('authBtn').disabled = true;
+  try {
+    const r = await api('/api/' + mode, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: $('email').value, password: $('pw').value }) });
+    setToken(r.token); $('pw').value = ''; await start();
+  } catch (err) { $('authErr').textContent = err.message; }
+  $('authBtn').disabled = false;
+});
+$('logout').onclick = async () => {
+  try { await api('/api/logout', { method: 'POST' }); } catch (_) {}
+  setToken('');
+  docs = []; selected = null; renderDocs(); hello(); mode = 'login'; showAuth();
+};
+async function start() {
+  if (!getToken()) { showAuth(); return; }
+  try { const m = await api('/api/me'); $('whoEmail').textContent = m.email; }
+  catch (_) { return; }
+  $('auth').classList.remove('show'); hello(); await loadDocs();
+}
+
+async function loadHealth() {
+  try {
+    const h = await api('/api/health');
+    $('dot').className = 'dot ' + (h.ai_key_configured ? 'ok' : 'bad');
+    $('statusText').textContent = h.ai_key_configured ? `AI ready (${h.model})` : 'GEMINI_API_KEY not set';
+    signupOpen = h.signup !== false;
+  } catch (e) { $('dot').className = 'dot bad'; $('statusText').textContent = 'Server not reachable'; }
+}
+
+async function loadDocs() {
+  docs = await api('/api/documents');
+  if (selected && !docs.some(d => d.id === selected)) selected = null;
+  renderDocs();
+}
+
+function renderDocs() {
+  const box = $('docs');
+  if (!docs.length) { box.innerHTML = '<div class="empty">No documents yet. Upload one to start.</div>'; }
+  else {
+    box.innerHTML = '<h4>DOCUMENTS</h4>' + docs.map(d =>
+      `<div class="doc ${d.id === selected ? 'sel' : ''}" data-id="${d.id}" title="Click to ask only this document">
+         <span>${esc(d.filename)}</span><small>${Math.max(1, Math.round(d.chars / 1000))}k</small>
+         <button data-del="${d.id}" title="Delete">&times;</button></div>`).join('');
+  }
+  const sel = docs.find(d => d.id === selected);
+  $('scope').textContent = sel ? `Asking only: ${sel.filename}` : 'Searching all documents';
+}
+
+$('docs').addEventListener('click', async e => {
+  const del = e.target.closest('[data-del]');
+  if (del) {
+    e.stopPropagation();
+    if (!confirm('Delete this document?')) return;
+    try { await api('/api/documents/' + del.dataset.del, { method: 'DELETE' }); await loadDocs(); }
+    catch (err) { addMsg('e', err.message); }
+    return;
+  }
+  const row = e.target.closest('.doc');
+  if (row) { const id = +row.dataset.id; selected = selected === id ? null : id; renderDocs(); }
+});
+
+async function upload(files) {
+  for (const f of files) {
+    const fd = new FormData(); fd.append('file', f);
+    try { await api('/api/upload', { method: 'POST', body: fd }); }
+    catch (err) { addMsg('e', `${f.name}: ${err.message}`); }
+  }
+  $('file').value = '';
+  await loadDocs();
+}
+$('file').addEventListener('change', e => upload([...e.target.files]));
+['dragover', 'dragenter'].forEach(t => $('drop').addEventListener(t, e => { e.preventDefault(); $('drop').classList.add('over'); }));
+['dragleave', 'drop'].forEach(t => $('drop').addEventListener(t, e => { e.preventDefault(); $('drop').classList.remove('over'); }));
+$('drop').addEventListener('drop', e => upload([...e.dataTransfer.files]));
+
+function hello() {
+  $('chat').innerHTML = `<div class="hello" id="hello"><h2>What would you like to know?</h2>
+    Upload documents on the left, then ask a question. Answers come only from your documents.
+    <div class="chips">
+      <button data-q="Summarize this document.">Summarize this document</button>
+      <button data-q="What are the key points?">What are the key points?</button>
+      <button data-q="List all dates and deadlines mentioned.">Dates and deadlines</button>
+    </div></div>`;
+}
+$('chat').addEventListener('click', e => { const b = e.target.closest('[data-q]'); if (b) { $('q').value = b.dataset.q; submit(); } });
+$('clear').onclick = hello;
+
+function addMsg(kind, text, meta) {
+  $('hello')?.remove();
+  const el = document.createElement('div');
+  el.className = 'msg ' + kind;
+  el.innerHTML = esc(text).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>') + (meta ? `<span class="meta">${esc(meta)}</span>` : '');
+  $('chat').appendChild(el); $('chat').scrollTop = $('chat').scrollHeight;
+  return el;
+}
+
+async function submit() {
+  const q = $('q').value.trim();
+  if (!q || busy) return;
+  if (!docs.length) { addMsg('e', 'Please upload a document first.'); return; }
+  busy = true; $('send').disabled = true; $('q').value = '';
+  addMsg('u', q);
+  const wait = addMsg('a', 'Reading your documents'); wait.querySelector('.meta')?.remove(); wait.classList.add('dots');
+  try {
+    const r = await api('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ question: q, document_id: selected }) });
+    wait.remove();
+    addMsg('a', r.answer, 'Source: ' + r.documents.join(', '));
+  } catch (err) { wait.remove(); addMsg('e', err.message); }
+  busy = false; $('send').disabled = false; $('q').focus();
+}
+$('form').addEventListener('submit', e => { e.preventDefault(); submit(); });
+$('q').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } });
+
+hello(); loadHealth().then(() => start());
+</script>
+</body>
+</html>
