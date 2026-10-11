@@ -1,27 +1,4 @@
-"""
-DocChat - upload documents, ask questions, get answers from them.
 
-One file backend + one page frontend (static/index.html), served together:
-
-    pip install -r requirements.txt
-    set GEMINI_API_KEY=YOUR_KEY            (PowerShell: $env:GEMINI_API_KEY="YOUR_KEY")
-    python app.py                          -> open http://127.0.0.1:8000
-
-Environment variables
-    GEMINI_API_KEY     required for answers
-    GEMINI_MODEL       default gemini-3.6-flash  (run test_models.py to find the fastest for your key)
-    GEMINI_BASE_URL    default https://generativelanguage.googleapis.com/v1beta
-    GEMINI_THINKING    default "off" (setting not sent). Try "low" or "high" only if you want to experiment
-    GEMINI_TIMEOUT     default 45 seconds per model before trying the next one
-    GEMINI_FALLBACK_MODELS  default gemini-3.1-flash-lite - tried if the main model is busy
-    FULL_CONTEXT_WORDS default 60000 - documents up to this size are sent whole
-    ALLOW_SIGNUP       default 1 - set 0 to stop new accounts (create yours first)
-    DATABASE_URL       Postgres connection string (e.g. Supabase). REQUIRED on Vercel.
-                       Not set = a local SQLite file (fine on your own computer).
-    ALLOWED_ORIGINS    comma-separated website addresses allowed to call the API
-                       (e.g. https://your-site.netlify.app). Default * (any).
-    MAX_UPLOAD_MB      default 4 (Vercel rejects request bodies over about 4.5 MB)
-"""
 import csv
 import hashlib
 import hmac
