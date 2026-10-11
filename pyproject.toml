@@ -11,4 +11,4 @@ dependencies = [
 ]
 
 [tool.vercel]
-entrypoint = "python_team_work_vs:app"
+entrypoint = "app:app"
