@@ -1,13 +1,16 @@
 [project]
-name = "docsecure-rag-backend"
-version = "0.1.0"
+name = "docchat"
+version = "0.2.0"
 requires-python = ">=3.12"
 dependencies = [
-"fastapi",
-"sqlalchemy",
-"python-multipart",
-"requests",
-"uvicorn",
+    "fastapi",
+    "python-multipart",
+    "requests",
+    "uvicorn",
+    "pypdf",
+    "python-docx",
+    "openpyxl",
+    "psycopg2-binary",
 ]
 
 [tool.vercel]
